@@ -1,12 +1,24 @@
 #include <iostream>
 #include <Windows.h>
 
+enum DRS_TOUCH_TYPE {
+    DRS_DOWN = 0,
+    DRS_UP = 1,
+    DRS_MOVE = 2,
+};
+
+typedef struct drs_touch {
+    int type = DRS_UP;
+    int id = 0;
+    double x = 0.0;
+    double y = 0.0;
+    double width = 1;
+    double height = 1;
+} drs_touch_t;
+
 int main()
 {
-    if (!InitializeTouchInjection(256, TOUCH_FEEDBACK_DEFAULT)) {
-        std::cerr << "Failed to initialize touch injection: " << GetLastError() << std::endl;
-        return 1;
-    }
+    InitializeTouchInjection(256, TOUCH_FEEDBACK_DEFAULT);
 
     POINTER_TOUCH_INFO touchInfo = { 0 };
     touchInfo.pointerInfo.pointerType = PT_TOUCH;
