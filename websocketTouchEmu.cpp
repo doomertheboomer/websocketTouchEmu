@@ -2,6 +2,7 @@
 #include <iostream>
 #include <Windows.h>
 
+
 enum DRS_TOUCH_TYPE {
     DRS_DOWN = 0,
     DRS_UP = 1,
@@ -52,35 +53,68 @@ POINTER_TOUCH_INFO toWintouch(drs_touch input) {
     return retVal;
 }
 
+
+
 int main()
 {
     InitializeTouchInjection(256, TOUCH_FEEDBACK_DEFAULT);
 
-    POINTER_TOUCH_INFO touchInfo = { 0 };
-    touchInfo.pointerInfo.pointerType = PT_TOUCH;
-    touchInfo.pointerInfo.pointerId = 0;
-    touchInfo.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
-    touchInfo.pointerInfo.ptPixelLocation.x = GetSystemMetrics(SM_CXSCREEN) / 2;
-    touchInfo.pointerInfo.ptPixelLocation.y = GetSystemMetrics(SM_CYSCREEN) / 2;
-    touchInfo.touchFlags = TOUCH_FLAG_NONE;
-    touchInfo.touchMask = TOUCH_MASK_CONTACTAREA;
-    touchInfo.rcContact.top = touchInfo.pointerInfo.ptPixelLocation.y - 5;
-    touchInfo.rcContact.bottom = touchInfo.pointerInfo.ptPixelLocation.y + 5;
-    touchInfo.rcContact.left = touchInfo.pointerInfo.ptPixelLocation.x - 5;
-    touchInfo.rcContact.right = touchInfo.pointerInfo.ptPixelLocation.x + 5;
-    touchInfo.orientation = 0;
-    touchInfo.pressure = 512;
+    ix::initNetSystem(); // oh my god this was needed
+    int port = 9002;
+    std::string host("0.0.0.0");
+    ix::WebSocketServer server(port, host);
 
-    while (true) {
-        InjectTouchInput(1, &touchInfo);
+    server.setOnClientMessageCallback([](std::shared_ptr<ix::ConnectionState> connectionState, ix::WebSocket& webSocket, const ix::WebSocketMessagePtr& msg) {
+        // The ConnectionState object contains information about the connection,
+        // at this point only the client ip address and the port.
+        std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
 
-        touchInfo.pointerInfo.pointerFlags = POINTER_FLAG_UP;
-        InjectTouchInput(1, &touchInfo);
+        if (msg->type == ix::WebSocketMessageType::Open)
+        {
+            std::cout << "New connection" << std::endl;
 
-        Sleep(1000);
+            // A connection state object is available, and has a default id
+            // You can subclass ConnectionState and pass an alternate factory
+            // to override it. It is useful if you want to store custom
+            // attributes per connection (authenticated bool flag, attributes, etc...)
+            std::cout << "id: " << connectionState->getId() << std::endl;
 
-        touchInfo.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
+            // The uri the client did connect to.
+            std::cout << "Uri: " << msg->openInfo.uri << std::endl;
+
+            std::cout << "Headers:" << std::endl;
+            for (auto it : msg->openInfo.headers)
+            {
+                std::cout << "\t" << it.first << ": " << it.second << std::endl;
+            }
+        }
+        else if (msg->type == ix::WebSocketMessageType::Message)
+        {
+            // For an echo server, we just send back to the client whatever was received by the server
+            // All connected clients are available in an std::set. See the broadcast cpp example.
+            // Second parameter tells whether we are sending the message in binary or text mode.
+            // Here we send it in the same mode as it was received.
+            std::cout << "Received: " << msg->str << std::endl;
+
+            webSocket.send(msg->str, msg->binary);
+        }
+        });
+
+    // Listen for connections
+    if (!server.listen().first)
+    {
+        std::cerr << "Error starting server." << std::endl;
+        return 1;
     }
+
+    // Optional: disable per-message deflate to avoid compatibility issues
+    server.disablePerMessageDeflate();
+
+    // Start the server
+    server.start();
+
+    // Run the server indefinitely
+    server.wait();
 
     return 0;
 }
