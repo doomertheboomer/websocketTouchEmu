@@ -1,7 +1,9 @@
 #include <ixwebsocket/IXWebSocketServer.h>
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <Windows.h>
 
+using json = nlohmann::json;
 
 enum DRS_TOUCH_TYPE {
     DRS_DOWN = 0,
@@ -53,8 +55,6 @@ POINTER_TOUCH_INFO toWintouch(drs_touch input) {
     return retVal;
 }
 
-
-
 int main()
 {
     InitializeTouchInjection(256, TOUCH_FEEDBACK_DEFAULT);
@@ -65,10 +65,9 @@ int main()
     ix::WebSocketServer server(port, host);
 
     server.setOnClientMessageCallback([](std::shared_ptr<ix::ConnectionState> connectionState, ix::WebSocket& webSocket, const ix::WebSocketMessagePtr& msg) {
-        std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
-
         if (msg->type == ix::WebSocketMessageType::Open)
         {
+            std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
             std::cout << "New connection" << std::endl;
             std::cout << "id: " << connectionState->getId() << std::endl;
             std::cout << "Uri: " << msg->openInfo.uri << std::endl;
@@ -80,8 +79,25 @@ int main()
         }
         else if (msg->type == ix::WebSocketMessageType::Message)
         {
-            std::cout << "Received: " << msg->str << std::endl;
-            webSocket.send(msg->str, msg->binary); // just loopback the message
+            json receivedJson = json::parse(msg->str);
+            if (receivedJson.contains("params") && receivedJson["params"].is_array() && receivedJson["params"][0].is_array())
+            {
+                auto params = receivedJson["params"][0];
+
+                if (params.size() == 6)
+                {
+                    drs_touch touch{};
+                    touch.type = params[0];
+                    touch.id = params[1];
+                    touch.x = params[2];
+                    touch.y = params[3];
+                    touch.width = params[4];
+                    touch.height = params[5];
+                    std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
+                    std::cout << "Received: " << msg->str << std::endl;
+                }
+            }
+            webSocket.send(msg->str, msg->binary);
         }
         });
 
