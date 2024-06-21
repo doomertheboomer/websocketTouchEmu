@@ -93,6 +93,10 @@ int main()
                     touch.y = params[3];
                     touch.width = params[4];
                     touch.height = params[5];
+                    
+                    POINTER_TOUCH_INFO touchInfo = toWintouch(touch);
+                    InjectTouchInput(1, &touchInfo); 
+
                     std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
                     std::cout << "Received: " << msg->str << std::endl;
                 }
