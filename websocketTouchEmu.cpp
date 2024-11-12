@@ -20,7 +20,7 @@ typedef struct drs_touch {
     double height = 1;
 } drs_touch_t;
 
-POINTER_TOUCH_INFO toWintouch(drs_touch input) {
+POINTER_TOUCH_INFO toWintouch(drs_touch input, int fakeId) {
     POINTER_TOUCH_INFO retVal{};
 
     // hardcoded values
@@ -31,7 +31,7 @@ POINTER_TOUCH_INFO toWintouch(drs_touch input) {
     retVal.pressure = 512;
 
     //dynamic values
-    retVal.pointerInfo.pointerId = input.id; // takes id from drs_touch struct
+    retVal.pointerInfo.pointerId = fakeId; // takes id from drs_touch struct
     switch (input.type) { // translates drs input type enum to windows pointer flags
     case DRS_DOWN:
         retVal.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
@@ -53,6 +53,80 @@ POINTER_TOUCH_INFO toWintouch(drs_touch input) {
     retVal.rcContact.right = retVal.pointerInfo.ptPixelLocation.x + (sizeY / 2);
 
     return retVal;
+}
+
+std::unordered_map<int, drs_touch> touches = {};
+
+std::vector<int> freeIds = { 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 };
+std::unordered_map<int, int> touchIds = {};
+
+void updateTouches() {
+    std::vector<POINTER_TOUCH_INFO> touchInfos = {};
+    std::vector<int> deleteTouches = {};
+    for (auto& it : touches) {
+        int fakeId;
+        if (touchIds.count(it.first) < 1) {
+            fakeId = freeIds[0]; // using more than 20 touches? your problem
+            freeIds.erase(freeIds.begin());
+            touchIds.insert_or_assign(it.first, fakeId);
+        }
+        else {
+            fakeId = touchIds[it.first];
+        }
+        printf("touch id %d = %d\n", it.first, fakeId);
+
+        touchInfos.push_back(toWintouch(it.second, fakeId));
+        if (it.second.type == DRS_UP) {
+
+            deleteTouches.push_back(it.first);
+        }
+        else if (it.second.type == DRS_DOWN) {
+            it.second.type = DRS_MOVE;
+        }
+    }
+
+    // Remove released touch
+    for (size_t i = 0; i < deleteTouches.size(); i++) {
+        printf("Delete touch %d\n", deleteTouches[i]);
+        touches.erase(deleteTouches[i]);
+        if (touchIds.count(deleteTouches[i]) > 0) {
+            freeIds.push_back(touchIds[deleteTouches[i]]);
+            touchIds.erase(deleteTouches[i]);
+        }
+    }
+
+    if (touchInfos.size() > 0) {
+        printf("Theres %d touch infos\n", touchInfos.size());
+        InjectTouchInput(touchInfos.size(), touchInfos.data());
+    }
+}
+
+std::mutex t;
+void updateTouch(nlohmann::json params) {
+    drs_touch touch{};
+    touch.type = params[0];
+    touch.id = params[1];
+    touch.x = params[2];
+    touch.y = params[3];
+    touch.width = params[4];
+    touch.height = params[5];
+
+    t.lock();
+    touches.insert_or_assign(touch.id, touch);
+    updateTouches();
+    t.unlock();
+}
+
+void updater() {
+
+    while (true) {
+
+        t.lock();
+        updateTouches();
+        t.unlock();
+
+        Sleep(16);
+    }
 }
 
 int main()
@@ -86,19 +160,10 @@ int main()
 
                 if (params.size() == 6)
                 {
-                    drs_touch touch{};
-                    touch.type = params[0];
-                    touch.id = params[1];
-                    touch.x = params[2];
-                    touch.y = params[3];
-                    touch.width = params[4];
-                    touch.height = params[5];
-                    
-                    POINTER_TOUCH_INFO touchInfo = toWintouch(touch);
-                    InjectTouchInput(1, &touchInfo); 
-
                     std::cout << "Remote ip: " << connectionState->getRemoteIp() << std::endl;
                     std::cout << "Received: " << msg->str << std::endl;
+
+                    updateTouch(params);
                 }
             }
             webSocket.send(msg->str, msg->binary);
@@ -112,6 +177,11 @@ int main()
     }
     server.disablePerMessageDeflate();
     server.start();
+
+    std::thread upd(updater);
+    upd.detach();
+
+    printf("Waiting for server to close\n");
     server.wait();
 
     return 0;
